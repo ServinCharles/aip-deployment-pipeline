@@ -1,0 +1,67 @@
+# .NET Agreement in Principle API (internal only, ClusterIP)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aip-api
+  labels:
+    app: aip-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aip-api
+  template:
+    metadata:
+      labels:
+        app: aip-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aip-api
+          image: aip-api # pinned to a build-pipeline image by scripts/deploy.sh
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aip-api
+  labels:
+    app: aip-api
+spec:
+  type: ClusterIP
+  selector:
+    app: aip-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

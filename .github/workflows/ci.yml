@@ -1,0 +1,87 @@
+name: CI
+
+# Proves the deploy pipeline on a real Kubernetes cluster (kind), using the same scripts and the
+# same containerised kubectl that Jenkins uses.
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  KUBECTL_IMAGE: registry.k8s.io/kubectl:v1.35.0
+
+jobs:
+  validate:
+    name: Terraform and manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform fmt and validate
+        working-directory: infra/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+      - name: Render every environment
+        run: |
+          for dir in k8s/environments/*/*/; do
+            echo "== $dir"
+            kubectl kustomize "$dir" > /dev/null
+          done
+      - name: Shell scripts parse
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+
+  deploy:
+    name: Deploy to sit-01 and sit-02 on kind
+    runs-on: ubuntu-latest
+    env:
+      KUBECTL: ${{ github.workspace }}/scripts/kubectl-docker.sh
+      KUBECONFIG_FILE: /home/runner/.kube/config
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out aip-mortgage-api
+        uses: actions/checkout@v4
+        with:
+          repository: ServinCharles/aip-mortgage-api
+          path: apps/aip-mortgage-api
+      - name: Check out aip-webapp
+        uses: actions/checkout@v4
+        with:
+          repository: ServinCharles/aip-webapp
+          path: apps/aip-webapp
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+
+      - name: Build images and load them into the cluster
+        run: |
+          docker build -t aip-api:ci apps/aip-mortgage-api
+          docker build -t aip-webapp:ci apps/aip-webapp
+          kind load docker-image aip-api:ci aip-webapp:ci --name chart-testing
+
+      - name: Deploy sit-01 (api, then webapp)
+        run: |
+          ./scripts/deploy.sh aip-api sit-01 aip-api:ci
+          ./scripts/deploy.sh aip-webapp sit-01 aip-webapp:ci
+
+      - name: Deploy sit-02 (api, then webapp)
+        run: |
+          ./scripts/deploy.sh aip-api sit-02 aip-api:ci
+          ./scripts/deploy.sh aip-webapp sit-02 aip-webapp:ci
+
+      - name: A broken image rolls back automatically
+        run: |
+          if ROLLOUT_TIMEOUT=45s ./scripts/deploy.sh aip-api sit-01 aip-api:does-not-exist; then
+            echo "::error::Deploying a missing image should have failed"; exit 1
+          fi
+          running="$("$KUBECTL" -n sit-01-api get deploy aip-api -o jsonpath='{.spec.template.spec.containers[0].image}')"
+          echo "sit-01 is running: $running"
+          test "$running" = "aip-api:ci"
+          "$KUBECTL" -n sit-01-api rollout status deploy/aip-api --timeout=60s
+
+      - name: Show what is running
+        if: always()
+        run: kubectl get pods,svc -A -l app.kubernetes.io/part-of=aip-mortgage -o wide

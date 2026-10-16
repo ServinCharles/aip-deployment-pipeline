@@ -1,0 +1,13 @@
+# sit-01 backend: aip-api in namespace sit-01-api
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sit-01-api
+resources:
+  - namespace.yaml
+  - ../../../base/aip-api
+replicas:
+  - name: aip-api
+    count: 1
+labels:
+  - pairs:
+      environment: sit-01

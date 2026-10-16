@@ -1,0 +1,10 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# Generated per deploy by scripts/deploy.sh
+k8s/releases/
+.kube/
+.deploy-image
+.DS_Store

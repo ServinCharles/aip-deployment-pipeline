@@ -1,0 +1,21 @@
+# sit-02 frontend: aip-webapp in namespace sit-02-dip, calling aip-api in sit-02-api
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sit-02-dip
+resources:
+  - namespace.yaml
+  - ../../../base/aip-webapp
+replicas:
+  - name: aip-webapp
+    count: 1
+labels:
+  - pairs:
+      environment: sit-02
+patches:
+  - target:
+      kind: Deployment
+      name: aip-webapp
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: http://aip-api.sit-02-api.svc.cluster.local:8080

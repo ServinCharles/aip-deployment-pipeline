@@ -1,0 +1,66 @@
+# React frontend on nginx, the public entry point (AWS load balancer)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aip-webapp
+  labels:
+    app: aip-webapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aip-webapp
+  template:
+    metadata:
+      labels:
+        app: aip-webapp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aip-webapp
+          image: aip-webapp # pinned to a build-pipeline image by scripts/deploy.sh
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: API_UPSTREAM
+              value: http://aip-api.sit-01-api.svc.cluster.local:8080 # set per environment
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aip-webapp
+  labels:
+    app: aip-webapp
+spec:
+  type: LoadBalancer
+  selector:
+    app: aip-webapp
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
