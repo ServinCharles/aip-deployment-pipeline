@@ -52,6 +52,13 @@ jobs:
         with:
           repository: ServinCharles/aip-webapp
           path: apps/aip-webapp
+      - name: Check out aip-chat-api (once that repo exists)
+        id: chat
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: ServinCharles/aip-chat-api
+          path: apps/aip-chat-api
 
       - name: Create kind cluster
         uses: helm/kind-action@v1
@@ -61,6 +68,13 @@ jobs:
           docker build -t aip-api:ci apps/aip-mortgage-api
           docker build -t aip-webapp:ci apps/aip-webapp
           kind load docker-image aip-api:ci aip-webapp:ci --name chart-testing
+
+      - name: Build and deploy aip-chat-api to sit-01
+        if: steps.chat.outcome == 'success'
+        run: |
+          docker build -t aip-chat-api:ci apps/aip-chat-api
+          kind load docker-image aip-chat-api:ci --name chart-testing
+          ./scripts/deploy.sh aip-chat-api sit-01 aip-chat-api:ci
 
       - name: Deploy sit-01 (api, then webapp)
         run: |

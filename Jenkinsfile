@@ -16,7 +16,7 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'SERVICE', choices: ['aip-api', 'aip-webapp'], description: 'Microservice to deploy')
+        choice(name: 'SERVICE', choices: ['aip-api', 'aip-webapp', 'aip-chat-api'], description: 'Microservice to deploy')
         string(name: 'IMAGE_TAG', defaultValue: '', description: 'Image tag from the build pipeline: the git short SHA, e.g. 3f2a1c9')
         choice(name: 'ENVIRONMENT', choices: ['sit-01', 'sit-02'], description: 'Target environment. sit-02 needs an approval')
         choice(name: 'TARGET', choices: ['eks', 'local'], description: 'eks: AWS EKS (aws-credentials). local: a cluster on this machine (kubeconfig-local)')

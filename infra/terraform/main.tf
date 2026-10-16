@@ -4,7 +4,7 @@ data "aws_availability_zones" "available" {
 
 locals {
   azs      = slice(data.aws_availability_zones.available.names, 0, 2)
-  services = ["aip-api", "aip-webapp"]
+  services = ["aip-api", "aip-webapp", "aip-chat-api"]
 }
 
 # Network: worker nodes in private subnets, load balancers in public subnets.

@@ -1,4 +1,4 @@
-# sit-01 frontend: aip-webapp in namespace sit-01-dip, calling aip-api in sit-01-api
+# sit-01 frontend: aip-webapp in namespace sit-01-dip, calling aip-api and aip-chat-api in sit-01-api
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: sit-01-dip
@@ -19,3 +19,6 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
         value: http://aip-api.sit-01-api.svc.cluster.local:8080
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: http://aip-chat-api.sit-01-api.svc.cluster.local:8080

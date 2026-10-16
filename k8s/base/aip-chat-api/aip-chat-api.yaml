@@ -1,0 +1,67 @@
+# .NET chatbot for the AIP page (internal only, ClusterIP)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aip-chat-api
+  labels:
+    app: aip-chat-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aip-chat-api
+  template:
+    metadata:
+      labels:
+        app: aip-chat-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aip-chat-api
+          image: aip-chat-api # pinned to a build-pipeline image by scripts/deploy.sh
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aip-chat-api
+  labels:
+    app: aip-chat-api
+spec:
+  type: ClusterIP
+  selector:
+    app: aip-chat-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
