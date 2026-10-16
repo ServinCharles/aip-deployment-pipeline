@@ -38,10 +38,14 @@ pipeline {
         stage('Validate') {
             steps {
                 script {
-                    if (!(params.IMAGE_TAG ==~ /[0-9a-f]{7,40}/)) {
-                        error "IMAGE_TAG must be a git commit SHA from the build pipeline, got '${params.IMAGE_TAG}'"
+                    // Accept "3f2a1c9" or "aip-api:3f2a1c9" (copied from a build log): keep only the tag
+                    def tag = params.IMAGE_TAG.trim()
+                    tag = tag.contains(':') ? tag.substring(tag.lastIndexOf(':') + 1) : tag
+                    if (!(tag ==~ /[0-9a-f]{7,40}/)) {
+                        error "IMAGE_TAG must be the git commit SHA from the build pipeline (e.g. 3f2a1c9), got '${params.IMAGE_TAG}'"
                     }
-                    currentBuild.displayName = "#${env.BUILD_NUMBER} ${params.SERVICE}:${params.IMAGE_TAG} → ${params.ENVIRONMENT}"
+                    env.TAG = tag
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} ${params.SERVICE}:${env.TAG} → ${params.ENVIRONMENT}"
                 }
             }
         }
@@ -51,7 +55,7 @@ pipeline {
             steps {
                 // Before connecting, so the short-lived cluster token isn't spent waiting
                 timeout(time: 30, unit: 'MINUTES') {
-                    input message: "Deploy ${params.SERVICE}:${params.IMAGE_TAG} to sit-02?", ok: 'Deploy'
+                    input message: "Deploy ${params.SERVICE}:${env.TAG} to sit-02?", ok: 'Deploy'
                 }
             }
         }
@@ -67,7 +71,7 @@ pipeline {
                         withCredentials([file(credentialsId: 'kubeconfig-local', variable: 'LOCAL_KUBECONFIG')]) {
                             sh '''
                                 mkdir -p .kube && cp "$LOCAL_KUBECONFIG" .kube/config && chmod 600 .kube/config
-                                echo "$SERVICE:$IMAGE_TAG" > .deploy-image
+                                echo "$SERVICE:$TAG" > .deploy-image
                             '''
                         }
                     }
@@ -112,10 +116,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ ${params.SERVICE}:${params.IMAGE_TAG} deployed to ${params.ENVIRONMENT}" + (env.APP_HOST ? " (http://${env.APP_HOST})" : '')
+            echo "✅ ${params.SERVICE}:${env.TAG} deployed to ${params.ENVIRONMENT}" + (env.APP_HOST ? " (http://${env.APP_HOST})" : '')
         }
         failure {
-            echo '❌ Deploy failed. If the rollout or smoke test failed, the previous version was restored automatically.'
+            echo '❌ Deploy failed. See the first error above. If the rollout or smoke test failed, the previous version was restored automatically.'
         }
         cleanup {
             // The kubeconfig holds a cluster token, so never leave it behind
@@ -132,9 +136,9 @@ def connectToEks() {
         ACCOUNT="$($AWS sts get-caller-identity --query Account --output text)"
         REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-        echo "==> Checking $SERVICE:$IMAGE_TAG exists in ECR (only built and scanned images can be deployed)"
-        $AWS ecr describe-images --repository-name "$SERVICE" --image-ids imageTag="$IMAGE_TAG" > /dev/null
-        echo "$REGISTRY/$SERVICE:$IMAGE_TAG" > .deploy-image
+        echo "==> Checking $SERVICE:$TAG exists in ECR (only built and scanned images can be deployed)"
+        $AWS ecr describe-images --repository-name "$SERVICE" --image-ids imageTag="$TAG" > /dev/null
+        echo "$REGISTRY/$SERVICE:$TAG" > .deploy-image
 
         ENDPOINT="$($AWS eks describe-cluster --name "$CLUSTER_NAME" --query cluster.endpoint --output text)"
         CA="$($AWS eks describe-cluster --name "$CLUSTER_NAME" --query cluster.certificateAuthority.data --output text)"
