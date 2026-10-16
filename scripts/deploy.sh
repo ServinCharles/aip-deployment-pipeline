@@ -24,8 +24,9 @@ ENV_DIR="${ROOT}/k8s/environments/${ENVIRONMENT}/${SERVICE}"
 [ -f "${ENV_DIR}/kustomization.yaml" ] || { echo "No such service/environment: ${SERVICE} in ${ENVIRONMENT}"; exit 1; }
 
 case "$SERVICE" in
-  aip-api)    NAMESPACE="${ENVIRONMENT}-api" ;;
-  aip-webapp) NAMESPACE="${ENVIRONMENT}-dip" ;;
+  aip-api)      NAMESPACE="${ENVIRONMENT}-api" ;;
+  aip-chat-api) NAMESPACE="${ENVIRONMENT}-api" ;;
+  aip-webapp)   NAMESPACE="${ENVIRONMENT}-dip" ;;
   *) echo "Unknown service: ${SERVICE}"; exit 1 ;;
 esac
 
@@ -62,6 +63,10 @@ echo "==> Smoke test from inside the cluster"
 case "$SERVICE" in
   aip-api)
     CHECK='curl -sf --retry 5 --retry-connrefused --retry-delay 2 http://aip-api:8080/health'
+    ;;
+  aip-chat-api)
+    # Health, then a real question that must be recognised
+    CHECK='curl -sf --retry 5 --retry-connrefused --retry-delay 2 http://aip-chat-api:8080/health && curl -sf -X POST http://aip-chat-api:8080/api/chat -H "Content-Type: application/json" -d "{\"message\":\"does this affect my credit score\"}" | grep -q credit_score_impact && echo " chat answered: credit_score_impact"'
     ;;
   aip-webapp)
     # Also proves the frontend can reach the API in the backend namespace

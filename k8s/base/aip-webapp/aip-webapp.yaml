@@ -28,6 +28,8 @@ spec:
           env:
             - name: API_UPSTREAM
               value: http://aip-api.sit-01-api.svc.cluster.local:8080 # set per environment
+            - name: CHAT_UPSTREAM
+              value: http://aip-chat-api.sit-01-api.svc.cluster.local:8080 # set per environment
           readinessProbe:
             httpGet:
               path: /healthz
