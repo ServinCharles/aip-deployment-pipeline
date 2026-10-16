@@ -22,6 +22,7 @@ pipeline {
         choice(name: 'TARGET', choices: ['eks', 'local'], description: 'eks: AWS EKS (aws-credentials). local: a cluster on this machine (kubeconfig-local)')
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run the Agentic-qa-demo suites against the environment after deploying')
         string(name: 'TEST_JOB', defaultValue: 'Agentic-qa-demo', description: 'Jenkins job name of the test framework')
+        string(name: 'LOCAL_URL', defaultValue: 'http://localhost:8090', description: 'local only: web app URL on this machine (kubectl -n <env>-dip port-forward svc/aip-webapp 8090:80)')
         string(name: 'AWS_REGION', defaultValue: 'eu-west-2', description: 'AWS region of the cluster and ECR')
         string(name: 'CLUSTER_NAME', defaultValue: 'aip-mortgage', description: 'EKS cluster name')
     }
@@ -85,11 +86,17 @@ pipeline {
             steps {
                 sh './scripts/deploy.sh "$SERVICE" "$ENVIRONMENT" "$DEPLOY_IMAGE"'
                 script {
-                    // Public URL of this environment's frontend (empty until it has a load balancer)
-                    env.APP_HOST = sh(returnStdout: true, script: '''
-                        "$KUBECTL" -n "$ENVIRONMENT-dip" get svc aip-webapp \
-                          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true
-                    ''').trim()
+                    if (params.TARGET == 'eks') {
+                        // Public URL of this environment's frontend (empty until it has a load balancer)
+                        def host = sh(returnStdout: true, script: '''
+                            "$KUBECTL" -n "$ENVIRONMENT-dip" get svc aip-webapp \
+                              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true
+                        ''').trim()
+                        env.APP_URL = host ? "http://${host}" : ''
+                    } else {
+                        // A local load balancer IP lives inside the VM (e.g. colima 192.168.5.x) and Jenkins can't reach it
+                        env.APP_URL = params.LOCAL_URL.trim()
+                    }
                 }
             }
         }
@@ -98,15 +105,24 @@ pipeline {
             when { expression { params.RUN_TESTS } }
             steps {
                 script {
-                    if (!env.APP_HOST) {
-                        echo "No public URL for ${params.ENVIRONMENT} yet (local cluster, or aip-webapp not deployed), so skipping ${params.TEST_JOB}."
-                        echo "Run it by hand with BASE_URL pointing at a port-forward: kubectl -n ${params.ENVIRONMENT}-dip port-forward svc/aip-webapp 8090:80"
+                    if (!env.APP_URL) {
+                        echo "No public URL for ${params.ENVIRONMENT} yet (aip-webapp not deployed), so skipping ${params.TEST_JOB}."
                         return
                     }
-                    // A new load balancer can take a few minutes before its DNS name resolves
-                    sh "for i in \$(seq 1 30); do curl -sf -o /dev/null http://${env.APP_HOST}/healthz && exit 0; sleep 10; done; exit 1"
+                    // EKS: a new load balancer can take a few minutes to resolve. Local: only check the port-forward is up
+                    def attempts = params.TARGET == 'eks' ? 30 : 3
+                    def up = sh(returnStatus: true, script: "for i in \$(seq 1 ${attempts}); do curl -sf -o /dev/null ${env.APP_URL}/healthz && exit 0; sleep 10; done; exit 1") == 0
+                    if (!up) {
+                        if (params.TARGET == 'eks') {
+                            error "${env.APP_URL} did not come up"
+                        }
+                        echo "${env.APP_URL} isn't reachable, so skipping ${params.TEST_JOB}. Start the port-forward and run the tests by hand:"
+                        echo "  kubectl -n ${params.ENVIRONMENT}-dip port-forward svc/aip-webapp 8090:80"
+                        return
+                    }
                     build job: params.TEST_JOB, propagate: true, parameters: [
-                        string(name: 'BASE_URL', value: "http://${env.APP_HOST}"),
+                        string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
+                        string(name: 'BASE_URL', value: env.APP_URL),
                         string(name: 'TEST_SUITE', value: params.SERVICE == 'aip-api' ? 'api' : 'smoke')
                     ]
                 }
@@ -116,7 +132,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ ${params.SERVICE}:${env.TAG} deployed to ${params.ENVIRONMENT}" + (env.APP_HOST ? " (http://${env.APP_HOST})" : '')
+            echo "✅ ${params.SERVICE}:${env.TAG} deployed to ${params.ENVIRONMENT}" + (env.APP_URL ? " (${env.APP_URL})" : '')
         }
         failure {
             echo '❌ Deploy failed. See the first error above. If the rollout or smoke test failed, the previous version was restored automatically.'
