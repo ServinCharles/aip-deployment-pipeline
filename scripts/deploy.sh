@@ -60,22 +60,23 @@ echo "==> Waiting for the rollout (timeout ${ROLLOUT_TIMEOUT})"
   || rollback "Rollout did not complete"
 
 echo "==> Smoke test from inside the cluster"
+# Old pods can still be leaving the Service for a few seconds after the rollout, so retry any error
 case "$SERVICE" in
   aip-api)
-    CHECK='curl -sf --retry 5 --retry-connrefused --retry-delay 2 http://aip-api:8080/health'
+    CHECK='curl -sSf --retry 10 --retry-all-errors --retry-delay 2 http://aip-api:8080/health'
     ;;
   aip-chat-api)
     # Health, then a real question that must be recognised
-    CHECK='curl -sf --retry 5 --retry-connrefused --retry-delay 2 http://aip-chat-api:8080/health && curl -sf -X POST http://aip-chat-api:8080/api/chat -H "Content-Type: application/json" -d "{\"message\":\"does this affect my credit score\"}" | grep -q credit_score_impact && echo " chat answered: credit_score_impact"'
+    CHECK='curl -sSf --retry 10 --retry-all-errors --retry-delay 2 http://aip-chat-api:8080/health && curl -sSf --retry 3 --retry-all-errors --retry-delay 2 -X POST http://aip-chat-api:8080/api/chat -H "Content-Type: application/json" -d "{\"message\":\"does this affect my credit score\"}" | grep -q credit_score_impact && echo " chat answered: credit_score_impact"'
     ;;
   aip-webapp)
     # Also proves the frontend can reach the API in the backend namespace
-    CHECK='curl -sf --retry 5 --retry-connrefused --retry-delay 2 http://aip-webapp/healthz && curl -sf --retry 3 --retry-delay 2 -X POST http://aip-webapp/api/mortgages/dip/decision -H "Content-Type: application/json" -d "{\"annualIncome\":45000,\"loanAmount\":150000}"'
+    CHECK='curl -sSf --retry 10 --retry-all-errors --retry-delay 2 http://aip-webapp/healthz && curl -sSf --retry 3 --retry-all-errors --retry-delay 2 -X POST http://aip-webapp/api/mortgages/dip/decision -H "Content-Type: application/json" -d "{\"annualIncome\":45000,\"loanAmount\":150000}"'
     ;;
 esac
 "$KUBECTL" -n "$NAMESPACE" run "smoke-${SERVICE}-$(date +%s)" --rm -i --restart=Never --quiet \
   --image=curlimages/curl:8.11.1 --command -- sh -c "$CHECK" \
-  || rollback "Smoke test failed (for aip-webapp, check aip-api is deployed to ${ENVIRONMENT}-api)"
+  || rollback "Smoke test failed (see the curl error above$([ "$SERVICE" = aip-webapp ] && echo "; check aip-api is deployed to ${ENVIRONMENT}-api"))"
 
 echo
 echo "✅ ${SERVICE} ${IMAGE##*:} is live in ${NAMESPACE}"

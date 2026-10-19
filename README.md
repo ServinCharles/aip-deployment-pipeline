@@ -66,6 +66,7 @@ Validate → Approve (sit-02 only) → Connect → Deploy → Post-deploy tests
 | `ENVIRONMENT` | `sit-01`, or `sit-02` (asks for approval first) |
 | `TARGET` | `eks` (AWS) or `local` (a cluster on the Jenkins machine) |
 | `RUN_TESTS` | after deploying, run the Agentic-qa-demo job against the environment's URL (`api` suite for the API, `smoke` for the web app) |
+| `LOCAL_URL` | `TARGET=local` only: the web app's URL on the Jenkins machine, default `http://localhost:8090` (a port-forward) |
 
 - **Promotion gate**: on EKS, the image must already be in ECR, meaning it went through the build pipeline's tests and scans. Nothing is rebuilt here.
 - Every tool runs in a container (AWS CLI, kubectl), so Jenkins only needs Docker.
@@ -91,6 +92,19 @@ aws eks create-access-entry --cluster-name aip-mortgage --principal-arn <jenkins
 aws eks associate-access-policy --cluster-name aip-mortgage --principal-arn <jenkins-user-arn> \
   --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy --access-scope type=cluster
 ```
+
+### Post-deploy tests on a local cluster
+
+On colima the web app's load balancer address (e.g. `192.168.5.1`) only exists inside the VM, so Jenkins can't reach it. With `TARGET=local` the pipeline tests `LOCAL_URL` instead, which needs a port-forward running on the Jenkins machine:
+
+1. In a **separate terminal**, start it and leave it open. This version reconnects by itself, because a port-forward is tied to one pod and stops whenever aip-webapp is redeployed:
+   ```
+   while true; do kubectl -n sit-01-dip port-forward svc/aip-webapp 8090:80; sleep 2; done
+   ```
+2. Check it: `curl http://localhost:8090/healthz` prints `ok`.
+3. Run the deploy with `TARGET=local` and `RUN_TESTS` ticked.
+
+If the port-forward isn't running, the pipeline skips the tests (the deploy stays green) and prints the command to start it.
 
 ## Create the AWS infrastructure
 
