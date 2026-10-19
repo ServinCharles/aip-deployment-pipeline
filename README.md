@@ -9,6 +9,7 @@ The app repos only build images. This repo promotes those exact images through t
 | [aip-mortgage-api](https://github.com/ServinCharles/aip-mortgage-api) | .NET API code, Dockerfile, **build** pipeline |
 | [aip-webapp](https://github.com/ServinCharles/aip-webapp) | React code, Dockerfile, **build** pipeline |
 | [aip-chat-api](https://github.com/ServinCharles/aip-chat-api) | Chatbot service, model validation artifacts, **build** pipeline |
+| [aip-audit-service](https://github.com/ServinCharles/aip-audit-service) | Kafka consumer keeping the audit trail in MongoDB, **build** pipeline |
 | **aip-deployment-pipeline** (this repo) | Terraform, Kubernetes manifests per environment, **deploy** pipeline |
 | [Agentic-qa-demo](https://github.com/ServinCharles/Agentic-qa-demo) | Test framework, run by the deploy pipeline after every deploy |
 
@@ -19,22 +20,47 @@ The app repos only build images. This repo promotes those exact images through t
 
 ## Environments
 
-Each environment has a frontend and a backend namespace, matching the platform architecture:
+Each environment has a frontend, a backend and a data namespace, matching the platform architecture:
 
-| Environment | Frontend namespace | Backend namespace |
-| --- | --- | --- |
-| sit-01 | `sit-01-dip` (aip-webapp) | `sit-01-api` (aip-api, aip-chat-api) |
-| sit-02 | `sit-02-dip` (aip-webapp) | `sit-02-api` (aip-api, aip-chat-api) |
+| Environment | Frontend namespace | Backend namespace | Data namespace |
+| --- | --- | --- | --- |
+| sit-01 | `sit-01-dip` (aip-webapp) | `sit-01-api` (aip-api, aip-chat-api, aip-audit-service) | `sit-01-data` (MongoDB, Kafka) |
+| sit-02 | `sit-02-dip` (aip-webapp) | `sit-02-api` (aip-api, aip-chat-api, aip-audit-service) | `sit-02-data` (MongoDB, Kafka) |
 
 The frontend calls the API across namespaces through cluster DNS (`aip-api.<env>-api.svc.cluster.local`) and the chatbot at `aip-chat-api.<env>-api.svc.cluster.local`. The web app still works if the chatbot isn't deployed; the chat widget just says it's unavailable. Only the frontend is public, through an AWS load balancer.
 
+### Events and data (MongoDB + Kafka)
+
+```
+aip-api ──save──▶ MongoDB (db aip, collection applications)
+   │
+   └──publish AipDecisionMade──▶ Kafka topic aip.decisions ──▶ aip-audit-service ──▶ MongoDB (db aip_audit, collection audit_events)
+                                                    events it can't process ──▶ aip.decisions.dlq
+```
+
+- **Deploy order:** `aip-data` (MongoDB + Kafka) first, then aip-api, then aip-audit-service.
+- **sit-01** has persistence switched on for aip-api (`PERSISTENCE_ENABLED=true`, applications kept 7 days). **sit-02** stays off until sit-01 is proven: copy the patch from `k8s/environments/sit-01/aip-api/kustomization.yaml` to switch it on.
+- A NetworkPolicy only lets the environment's `-api` namespace reach `<env>-data`. MongoDB has no password in this demo setup, so the NetworkPolicy is its protection.
+- Data is on persistent volumes, so it survives pod restarts. On EKS that needs the Amazon EBS CSI driver add-on.
+- Memory: MongoDB and Kafka need about 1.5 GB between them. On colima, give the VM enough room: `colima stop && colima start --kubernetes --cpu 4 --memory 6`.
+
+Look at the data:
+```bash
+kubectl -n sit-01-data exec mongodb-0 -- mongosh aip --quiet --eval 'db.applications.find().sort({createdAt:-1}).limit(3)'
+kubectl -n sit-01-data exec mongodb-0 -- mongosh aip_audit --quiet --eval 'db.audit_events.countDocuments()'
+kubectl -n sit-01-data exec kafka-0 -- /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group aip-audit
+```
+The last command shows each partition's **lag**: how many events aip-audit-service hasn't processed yet.
+
 ```
 k8s/
-  base/aip-api, base/aip-webapp, base/aip-chat-api  the services, shared by every environment
+  base/aip-api, base/aip-webapp, base/aip-chat-api, base/aip-audit-service  the services, shared by every environment
+  base/mongodb, base/kafka                the data services
   environments/sit-01/<service>           namespace, replicas, API address for sit-01
   environments/sit-02/<service>           the same for sit-02
 infra/terraform                           VPC, EKS cluster, ECR repositories
 scripts/deploy.sh                         the deploy logic (Jenkins and manual deploys)
+scripts/deploy-data.sh                    deploys MongoDB + Kafka to an environment and creates the topics
 scripts/kubectl-docker.sh                 kubectl in a container, for Jenkins
 scripts/teardown.sh                       removes everything from AWS
 Jenkinsfile                               the AIP Deployment Pipeline
@@ -61,11 +87,11 @@ Validate → Approve (sit-02 only) → Connect → Deploy → Post-deploy tests
 
 | Parameter | Meaning |
 | --- | --- |
-| `SERVICE` | `aip-api`, `aip-webapp` or `aip-chat-api` |
+| `SERVICE` | `aip-api`, `aip-webapp`, `aip-chat-api`, `aip-audit-service`, or `aip-data` (MongoDB + Kafka, no `IMAGE_TAG` needed) |
 | `IMAGE_TAG` | the git short SHA the build pipeline tagged the image with, e.g. `3f2a1c9` |
 | `ENVIRONMENT` | `sit-01`, or `sit-02` (asks for approval first) |
 | `TARGET` | `eks` (AWS) or `local` (a cluster on the Jenkins machine) |
-| `RUN_TESTS` | after deploying, run the Agentic-qa-demo job against the environment's URL (`api` suite for the API, `smoke` for the web app) |
+| `RUN_TESTS` | after deploying, run the Agentic-qa-demo job against the environment's URL (`api` suite for the API, `events` for the audit service, `smoke` for the rest; skipped for `aip-data`) |
 | `LOCAL_URL` | `TARGET=local` only: the web app's URL on the Jenkins machine, default `http://localhost:8090` (a port-forward) |
 
 - **Promotion gate**: on EKS, the image must already be in ECR, meaning it went through the build pipeline's tests and scans. Nothing is rebuilt here.
@@ -121,7 +147,9 @@ This creates the VPC, the EKS cluster `aip-mortgage` and an ECR repository per s
 
 ```bash
 aws eks update-kubeconfig --region eu-west-2 --name aip-mortgage
+./scripts/deploy-data.sh sit-01     # MongoDB + Kafka, first
 ./scripts/deploy.sh aip-api sit-01 <account>.dkr.ecr.eu-west-2.amazonaws.com/aip-api:<tag>
+./scripts/deploy.sh aip-audit-service sit-01 <account>.dkr.ecr.eu-west-2.amazonaws.com/aip-audit-service:<tag>
 ./scripts/deploy.sh aip-webapp sit-01 <account>.dkr.ecr.eu-west-2.amazonaws.com/aip-webapp:<tag>
 kubectl -n sit-01-dip get svc aip-webapp     # EXTERNAL-IP is the app's URL
 ```

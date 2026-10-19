@@ -1,4 +1,6 @@
 # sit-01 backend: aip-api in namespace sit-01-api
+# Persistence is ON here: applications are saved to MongoDB and decision events go to Kafka (both in sit-01-data).
+# Applications older than 7 days are deleted automatically (test data clean-up).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: sit-01-api
@@ -11,3 +13,28 @@ replicas:
 labels:
   - pairs:
       environment: sit-01
+patches:
+  - target:
+      kind: Deployment
+      name: aip-api
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: PERSISTENCE_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MONGODB_URI
+          value: mongodb://mongodb.sit-01-data.svc.cluster.local:27017
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: KAFKA_BOOTSTRAP_SERVERS
+          value: kafka.sit-01-data.svc.cluster.local:9092
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: APPLICATION_RETENTION_DAYS
+          value: "7"

@@ -26,6 +26,7 @@ ENV_DIR="${ROOT}/k8s/environments/${ENVIRONMENT}/${SERVICE}"
 case "$SERVICE" in
   aip-api)      NAMESPACE="${ENVIRONMENT}-api" ;;
   aip-chat-api) NAMESPACE="${ENVIRONMENT}-api" ;;
+  aip-audit-service) NAMESPACE="${ENVIRONMENT}-api" ;;
   aip-webapp)   NAMESPACE="${ENVIRONMENT}-dip" ;;
   *) echo "Unknown service: ${SERVICE}"; exit 1 ;;
 esac
@@ -68,6 +69,10 @@ case "$SERVICE" in
   aip-chat-api)
     # Health, then a real question that must be recognised
     CHECK='curl -sSf --retry 10 --retry-all-errors --retry-delay 2 http://aip-chat-api:8080/health && curl -sSf --retry 3 --retry-all-errors --retry-delay 2 -X POST http://aip-chat-api:8080/api/chat -H "Content-Type: application/json" -d "{\"message\":\"does this affect my credit score\"}" | grep -q credit_score_impact && echo " chat answered: credit_score_impact"'
+    ;;
+  aip-audit-service)
+    # Health, then an audit lookup, which proves it can read MongoDB (an unknown application has no events)
+    CHECK='curl -sSf --retry 10 --retry-all-errors --retry-delay 2 http://aip-audit-service:8080/health && curl -sSf --retry 3 --retry-all-errors --retry-delay 2 http://aip-audit-service:8080/api/audit/AIP-20000101-00000000 | grep -q "\"events\":\[\]" && echo " audit store reachable"'
     ;;
   aip-webapp)
     # Also proves the frontend can reach the API in the backend namespace

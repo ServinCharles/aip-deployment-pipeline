@@ -1,0 +1,83 @@
+# .NET audit service: consumes AipDecisionMade events from Kafka (consumer group aip-audit) and keeps the
+# audit trail in MongoDB (database aip_audit). Internal only (ClusterIP).
+# One replica: Kafka shares the topic's partitions across replicas of the same consumer group,
+# so scaling out is just a replica count (up to the 3 partitions).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aip-audit-service
+  labels:
+    app: aip-audit-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aip-audit-service
+  template:
+    metadata:
+      labels:
+        app: aip-audit-service
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aip-audit-service
+          image: aip-audit-service # pinned to a build-pipeline image by scripts/deploy.sh
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # env/0 and env/1 are set per environment
+            - name: MONGODB_URI
+              value: mongodb://mongodb.sit-01-data.svc.cluster.local:27017
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.sit-01-data.svc.cluster.local:9092
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: MONGODB_DATABASE
+              value: aip_audit
+            - name: KAFKA_TOPIC
+              value: aip.decisions
+            - name: KAFKA_DLQ_TOPIC
+              value: aip.decisions.dlq
+            - name: KAFKA_GROUP_ID
+              value: aip-audit
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aip-audit-service
+  labels:
+    app: aip-audit-service
+spec:
+  type: ClusterIP
+  selector:
+    app: aip-audit-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

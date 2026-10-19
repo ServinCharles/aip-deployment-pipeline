@@ -1,4 +1,5 @@
 # sit-02 backend: aip-api in namespace sit-02-api
+# Persistence is OFF here until it is proven in sit-01: copy the patch from sit-01/aip-api to switch it on.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: sit-02-api

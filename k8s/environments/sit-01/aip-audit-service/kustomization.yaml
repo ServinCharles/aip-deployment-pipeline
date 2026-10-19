@@ -1,0 +1,21 @@
+# sit-01 backend: aip-audit-service in namespace sit-01-api, reading Kafka and MongoDB in sit-01-data
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sit-01-api
+resources:
+  - namespace.yaml
+  - ../../../base/aip-audit-service
+labels:
+  - pairs:
+      environment: sit-01
+patches:
+  - target:
+      kind: Deployment
+      name: aip-audit-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: mongodb://mongodb.sit-01-data.svc.cluster.local:27017
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: kafka.sit-01-data.svc.cluster.local:9092

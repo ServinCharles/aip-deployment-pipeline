@@ -59,6 +59,22 @@ jobs:
         with:
           repository: ServinCharles/aip-chat-api
           path: apps/aip-chat-api
+      - name: Check out aip-audit-service (once that repo exists)
+        id: audit
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: ServinCharles/aip-audit-service
+          path: apps/aip-audit-service
+      - name: Does this aip-api version save applications?
+        id: persistence
+        run: |
+          if grep -q PERSISTENCE_ENABLED apps/aip-mortgage-api/src/AipApi/PersistenceOptions.cs 2>/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::aip-api main doesn't have applicationId/persistence yet, so the persistence checks are skipped"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create kind cluster
         uses: helm/kind-action@v1
@@ -76,10 +92,45 @@ jobs:
           kind load docker-image aip-chat-api:ci --name chart-testing
           ./scripts/deploy.sh aip-chat-api sit-01 aip-chat-api:ci
 
+      - name: Deploy sit-01 data services (MongoDB + Kafka)
+        run: ./scripts/deploy-data.sh sit-01
+
       - name: Deploy sit-01 (api, then webapp)
         run: |
           ./scripts/deploy.sh aip-api sit-01 aip-api:ci
           ./scripts/deploy.sh aip-webapp sit-01 aip-webapp:ci
+
+      - name: sit-01 saves applications (persistence on)
+        if: steps.persistence.outputs.enabled == 'true'
+        run: |
+          "$KUBECTL" -n sit-01-api run persist-check --rm -i --restart=Never --quiet \
+            --image=curlimages/curl:8.11.1 --command -- sh -c '
+              set -e
+              id=$(curl -sSf -X POST http://aip-api:8080/api/mortgages/dip/decision -H "Content-Type: application/json" \
+                -d "{\"annualIncome\":45000,\"loanAmount\":150000}" | sed -n "s/.*\"applicationId\":\"\([^\"]*\)\".*/\1/p")
+              echo "applicationId: $id"
+              [ -n "$id" ]
+              curl -sSf "http://aip-api:8080/api/applications/$id" | tee /dev/stderr | grep -q "\"decision\":\"Accepted\""
+              echo " saved in MongoDB"'
+
+      - name: Build and deploy aip-audit-service to sit-01, then check a decision is audited
+        if: steps.audit.outcome == 'success' && steps.persistence.outputs.enabled == 'true'
+        run: |
+          docker build -t aip-audit-service:ci apps/aip-audit-service
+          kind load docker-image aip-audit-service:ci --name chart-testing
+          ./scripts/deploy.sh aip-audit-service sit-01 aip-audit-service:ci
+          "$KUBECTL" -n sit-01-api run audit-check --rm -i --restart=Never --quiet \
+            --image=curlimages/curl:8.11.1 --command -- sh -c '
+              set -e
+              id=$(curl -sSf -X POST http://aip-api:8080/api/mortgages/dip/decision -H "Content-Type: application/json" \
+                -d "{\"annualIncome\":30000,\"loanAmount\":200000}" | sed -n "s/.*\"applicationId\":\"\([^\"]*\)\".*/\1/p")
+              echo "applicationId: $id"
+              for i in $(seq 1 30); do
+                body=$(curl -sSf "http://aip-audit-service:8080/api/audit/$id")
+                echo "$body" | grep -q "AipDecisionMade" && { echo "$body"; echo " audited"; exit 0; }
+                sleep 1
+              done
+              echo "event not audited within 30s: $body"; exit 1'
 
       - name: Deploy sit-02 (api, then webapp)
         run: |
