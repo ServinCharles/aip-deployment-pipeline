@@ -12,7 +12,7 @@ if aws eks describe-cluster --region "$REGION" --name "$CLUSTER" >/dev/null 2>&1
   aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER" >/dev/null
   for env in sit-01 sit-02; do
     echo "==> Deleting ${env} namespaces (and their load balancers)"
-    kubectl delete namespace "${env}-dip" "${env}-api" --ignore-not-found --wait=true
+    kubectl delete namespace "${env}-dip" "${env}-api" "${env}-data" --ignore-not-found --wait=true
   done
 fi
 

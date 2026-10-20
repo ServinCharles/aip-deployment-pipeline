@@ -1,0 +1,12 @@
+# sit-02 data services: MongoDB and Kafka in namespace sit-02-data (deployed by scripts/deploy-data.sh)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sit-02-data
+resources:
+  - namespace.yaml
+  - network-policy.yaml
+  - ../../../base/mongodb
+  - ../../../base/kafka
+labels:
+  - pairs:
+      environment: sit-02

@@ -1,0 +1,15 @@
+# Only this environment's backend namespace (sit-02-api) can reach MongoDB and Kafka.
+# Pods inside sit-02-data can still talk to each other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-sit-02-api-only
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: sit-02-api
+        - podSelector: {}

@@ -4,6 +4,9 @@
 //
 //   Validate -> Approve (sit-02 only) -> Connect -> Deploy (rollout, auto rollback, smoke test) -> Post-deploy tests
 //
+// SERVICE=aip-data deploys the environment's data services (MongoDB and Kafka) instead of a microservice:
+// no image tag is needed, because their images are pinned in k8s/base.
+//
 // Every tool runs in a Docker container (AWS CLI, kubectl), so the Jenkins machine only needs Docker.
 
 pipeline {
@@ -16,8 +19,8 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'SERVICE', choices: ['aip-api', 'aip-webapp', 'aip-chat-api'], description: 'Microservice to deploy')
-        string(name: 'IMAGE_TAG', defaultValue: '', description: 'Image tag from the build pipeline: the git short SHA, e.g. 3f2a1c9')
+        choice(name: 'SERVICE', choices: ['aip-api', 'aip-webapp', 'aip-chat-api', 'aip-audit-service', 'aip-data'], description: 'Microservice to deploy. aip-data = MongoDB + Kafka for the environment (deploy it before aip-audit-service)')
+        string(name: 'IMAGE_TAG', defaultValue: '', description: 'Image tag from the build pipeline: the git short SHA, e.g. 3f2a1c9. Not needed for aip-data')
         choice(name: 'ENVIRONMENT', choices: ['sit-01', 'sit-02'], description: 'Target environment. sit-02 needs an approval')
         choice(name: 'TARGET', choices: ['eks', 'local'], description: 'eks: AWS EKS (aws-credentials). local: a cluster on this machine (kubeconfig-local)')
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run the Agentic-qa-demo suites against the environment after deploying')
@@ -39,6 +42,11 @@ pipeline {
         stage('Validate') {
             steps {
                 script {
+                    if (params.SERVICE == 'aip-data') {
+                        env.TAG = 'pinned'
+                        currentBuild.displayName = "#${env.BUILD_NUMBER} aip-data (MongoDB + Kafka) → ${params.ENVIRONMENT}"
+                        return
+                    }
                     // Accept "3f2a1c9" or "aip-api:3f2a1c9" (copied from a build log): keep only the tag
                     def tag = params.IMAGE_TAG.trim()
                     tag = tag.contains(':') ? tag.substring(tag.lastIndexOf(':') + 1) : tag
@@ -84,8 +92,13 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sh './scripts/deploy.sh "$SERVICE" "$ENVIRONMENT" "$DEPLOY_IMAGE"'
                 script {
+                    if (params.SERVICE == 'aip-data') {
+                        sh './scripts/deploy-data.sh "$ENVIRONMENT"'
+                    } else {
+                        sh './scripts/deploy.sh "$SERVICE" "$ENVIRONMENT" "$DEPLOY_IMAGE"'
+                    }
+
                     if (params.TARGET == 'eks') {
                         // Public URL of this environment's frontend (empty until it has a load balancer)
                         def host = sh(returnStdout: true, script: '''
@@ -102,7 +115,8 @@ pipeline {
         }
 
         stage('Post-deploy tests') {
-            when { expression { params.RUN_TESTS } }
+            // Data services have their own smoke test in deploy-data.sh; the app tests run when a service is deployed
+            when { expression { params.RUN_TESTS && params.SERVICE != 'aip-data' } }
             steps {
                 script {
                     if (!env.APP_URL) {
@@ -123,7 +137,7 @@ pipeline {
                     build job: params.TEST_JOB, propagate: true, parameters: [
                         string(name: 'ENVIRONMENT', value: params.ENVIRONMENT),
                         string(name: 'BASE_URL', value: env.APP_URL),
-                        string(name: 'TEST_SUITE', value: params.SERVICE == 'aip-api' ? 'api' : 'smoke')
+                        string(name: 'TEST_SUITE', value: testSuiteFor(params.SERVICE))
                     ]
                 }
             }
@@ -144,6 +158,15 @@ pipeline {
     }
 }
 
+// Which Agentic-qa-demo suite proves a deploy of this service
+def testSuiteFor(String service) {
+    switch (service) {
+        case 'aip-api':           return 'api'
+        case 'aip-audit-service': return 'events'
+        default:                  return 'smoke'
+    }
+}
+
 // Promotion gate (the image must already be in ECR), then a kubeconfig with a short-lived EKS token.
 // The IAM user behind aws-credentials needs access to the cluster (an EKS access entry).
 def connectToEks() {
@@ -152,9 +175,13 @@ def connectToEks() {
         ACCOUNT="$($AWS sts get-caller-identity --query Account --output text)"
         REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-        echo "==> Checking $SERVICE:$TAG exists in ECR (only built and scanned images can be deployed)"
-        $AWS ecr describe-images --repository-name "$SERVICE" --image-ids imageTag="$TAG" > /dev/null
-        echo "$REGISTRY/$SERVICE:$TAG" > .deploy-image
+        if [ "$SERVICE" = "aip-data" ]; then
+          echo "aip-data (pinned images)" > .deploy-image
+        else
+          echo "==> Checking $SERVICE:$TAG exists in ECR (only built and scanned images can be deployed)"
+          $AWS ecr describe-images --repository-name "$SERVICE" --image-ids imageTag="$TAG" > /dev/null
+          echo "$REGISTRY/$SERVICE:$TAG" > .deploy-image
+        fi
 
         ENDPOINT="$($AWS eks describe-cluster --name "$CLUSTER_NAME" --query cluster.endpoint --output text)"
         CA="$($AWS eks describe-cluster --name "$CLUSTER_NAME" --query cluster.certificateAuthority.data --output text)"

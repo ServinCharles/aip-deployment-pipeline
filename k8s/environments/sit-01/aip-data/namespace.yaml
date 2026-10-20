@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sit-01-data
+  labels:
+    environment: sit-01
