@@ -41,7 +41,10 @@ jobs:
       - uses: azure/setup-helm@v4
       - name: Render the Grafana Kubernetes Monitoring chart with our values
         run: |
-          ./scripts/monitoring-setup.sh preview > rendered.yaml
+          if ! ./scripts/monitoring-setup.sh preview > rendered.yaml 2> render-errors.txt; then
+            tail -n 20 render-errors.txt | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          fi
           echo "Rendered $(grep -c '^kind:' rendered.yaml) objects"
           grep '^kind:' rendered.yaml | sort | uniq -c
           grep -q 'grafana-cloud' rendered.yaml || { echo "::error::the grafana-cloud secret is not referenced"; exit 1; }
@@ -49,7 +52,7 @@ jobs:
       - name: Dashboard JSON matches build-dashboard.py
         run: |
           python3 monitoring/dashboards/build-dashboard.py
-          git diff --exit-code monitoring/dashboards/ || { echo "::error::run monitoring/dashboards/build-dashboard.py and commit the JSON"; exit 1; }
+          git diff --stat --exit-code monitoring/dashboards/ || { echo "::error::dashboard JSON out of date: $(git diff --stat monitoring/dashboards/ | tail -1)"; exit 1; }
 
   deploy:
     name: Deploy to sit-01 and sit-02 on kind
