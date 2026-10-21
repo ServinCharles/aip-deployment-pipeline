@@ -79,11 +79,11 @@ podLogsViaLoki:
   destinations: [grafana-cloud-logs]
   namespaces: [sit-01-dip, sit-01-api, sit-01-data, sit-02-dip, sit-02-api, sit-02-data]
 
-# Receives Beyla's traces and forwards them to Grafana Cloud Traces
+# Receives Beyla's traces and forwards them to Grafana Cloud Traces (and any metrics or logs to Prometheus and Loki).
+# No destinations list: the chart uses every destination that accepts each signal.
 applicationObservability:
   enabled: true
   collector: alloy-receiver
-  destinations: [grafana-cloud-traces]
   receivers:
     otlp:
       http:
