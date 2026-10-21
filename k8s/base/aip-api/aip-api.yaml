@@ -31,6 +31,9 @@ spec:
             # Workstation GC: one small heap instead of one per CPU core (server GC), which used far more memory
             - name: DOTNET_gcServer
               value: "0"
+            # One JSON object per log line, so Grafana (Loki) can filter on fields such as ApplicationId and Decision
+            - name: Logging__Console__FormatterName
+              value: json
           readinessProbe:
             httpGet:
               path: /health

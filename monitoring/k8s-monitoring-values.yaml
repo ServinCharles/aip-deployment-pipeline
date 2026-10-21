@@ -1,0 +1,123 @@
+# Grafana Kubernetes Monitoring (Helm chart grafana/k8s-monitoring 4.5.3) sending to Grafana Cloud.
+# Installed by scripts/monitoring-setup.sh, which also sets the cluster name and the three Grafana Cloud URLs.
+#
+# Credentials are never in this file: they live in the Kubernetes secret "grafana-cloud" in the monitoring
+# namespace, created by the setup script from environment variables.
+#
+#   Logs     pod logs from the AIP namespaces and Kubernetes events  -> Grafana Cloud Logs (Loki)
+#   Metrics  Kubernetes health, plus Beyla service metrics          -> Grafana Cloud Metrics (Prometheus)
+#   Traces   Beyla HTTP traces                                      -> Grafana Cloud Traces (Tempo) over OTLP
+#
+# Sized for one small local node (k3s on colima): small collectors, no node or cost exporters, AIP namespaces only.
+
+cluster:
+  name: aip-local # overridden by the setup script (CLUSTER_NAME)
+
+destinations:
+  grafana-cloud-metrics:
+    type: prometheus
+    url: "" # set by the setup script: GRAFANA_CLOUD_PROMETHEUS_URL
+    auth:
+      type: basic
+      usernameKey: prometheus-username
+      passwordKey: access-token
+    secret:
+      create: false
+      name: grafana-cloud
+      namespace: monitoring
+
+  grafana-cloud-logs:
+    type: loki
+    url: "" # set by the setup script: GRAFANA_CLOUD_LOKI_URL
+    auth:
+      type: basic
+      usernameKey: loki-username
+      passwordKey: access-token
+    secret:
+      create: false
+      name: grafana-cloud
+      namespace: monitoring
+
+  grafana-cloud-traces:
+    type: otlp
+    protocol: http
+    url: "" # set by the setup script: GRAFANA_CLOUD_OTLP_URL
+    auth:
+      type: basic
+      usernameKey: otlp-username
+      passwordKey: access-token
+    secret:
+      create: false
+      name: grafana-cloud
+      namespace: monitoring
+    # Metrics and logs already go to the Prometheus and Loki destinations
+    metrics: {enabled: false}
+    logs: {enabled: false}
+    traces: {enabled: true}
+
+# Kubernetes health: pods, restarts, OOMKilled, CPU and memory (Grafana Cloud's Kubernetes Monitoring app)
+clusterMetrics:
+  enabled: true
+  collector: alloy-metrics
+  destinations: [grafana-cloud-metrics]
+  kube-state-metrics:
+    # Only the namespaces we run, to stay well inside the free tier's 10,000 active series
+    namespaces: [sit-01-dip, sit-01-api, sit-01-data, sit-02-dip, sit-02-api, sit-02-data, monitoring]
+
+# Kubernetes events: crashes, OOMKilled, failed image pulls, scheduling problems
+clusterEvents:
+  enabled: true
+  collector: alloy-singleton
+  destinations: [grafana-cloud-logs]
+  namespaces: [sit-01-dip, sit-01-api, sit-01-data, sit-02-dip, sit-02-api, sit-02-data]
+
+# Pod logs from the AIP namespaces. The .NET services log one JSON object per line
+# (Logging__Console__FormatterName=json in k8s/base), so fields like ApplicationId can be queried.
+podLogsViaLoki:
+  enabled: true
+  collector: alloy-logs
+  destinations: [grafana-cloud-logs]
+  namespaces: [sit-01-dip, sit-01-api, sit-01-data, sit-02-dip, sit-02-api, sit-02-data]
+
+# Receives Beyla's traces and forwards them to Grafana Cloud Traces
+applicationObservability:
+  enabled: true
+  collector: alloy-receiver
+  destinations: [grafana-cloud-traces]
+  receivers:
+    otlp:
+      http:
+        enabled: true
+
+# Beyla: automatic HTTP metrics and traces with eBPF, no code changes (the OneAgent idea)
+autoInstrumentation:
+  enabled: true
+  collector: alloy-metrics
+  destinations: [grafana-cloud-metrics]
+  beyla:
+    k8sCache:
+      replicas: 0 # one node: Beyla reads Kubernetes metadata itself, saving a pod
+    config:
+      data:
+        discovery:
+          services:
+            # The AIP web app and services only, not Kafka, MongoDB, Kubernetes or the monitoring pods
+            - k8s_namespace: "^sit-0[12]-(dip|api)$"
+        routes:
+          unmatched: heuristic
+          ignored_patterns:
+            - /health
+
+collectors:
+  alloy-metrics:
+    presets: [small, clustered, statefulset]
+  alloy-logs:
+    presets: [small, filesystem-log-reader, daemonset]
+  alloy-singleton:
+    presets: [small, singleton]
+  alloy-receiver:
+    presets: [small, deployment]
+
+telemetryServices:
+  kube-state-metrics:
+    deploy: true
