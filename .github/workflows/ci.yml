@@ -33,6 +33,24 @@ jobs:
       - name: Shell scripts parse
         run: for f in scripts/*.sh; do bash -n "$f"; done
 
+  monitoring:
+    name: Monitoring chart and dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Render the Grafana Kubernetes Monitoring chart with our values
+        run: |
+          ./scripts/monitoring-setup.sh preview > rendered.yaml
+          echo "Rendered $(grep -c '^kind:' rendered.yaml) objects"
+          grep '^kind:' rendered.yaml | sort | uniq -c
+          grep -q 'grafana-cloud' rendered.yaml || { echo "::error::the grafana-cloud secret is not referenced"; exit 1; }
+          grep -qi 'beyla' rendered.yaml || { echo "::error::Beyla is not in the rendered chart"; exit 1; }
+      - name: Dashboard JSON matches build-dashboard.py
+        run: |
+          python3 monitoring/dashboards/build-dashboard.py
+          git diff --exit-code monitoring/dashboards/ || { echo "::error::run monitoring/dashboards/build-dashboard.py and commit the JSON"; exit 1; }
+
   deploy:
     name: Deploy to sit-01 and sit-02 on kind
     runs-on: ubuntu-latest

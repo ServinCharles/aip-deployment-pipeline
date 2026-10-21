@@ -28,6 +28,9 @@ spec:
           env:
             - name: ASPNETCORE_ENVIRONMENT
               value: Production
+            # One JSON object per log line, so Grafana (Loki) can filter on fields such as ApplicationId and Decision
+            - name: Logging__Console__FormatterName
+              value: json
           readinessProbe:
             httpGet:
               path: /health
