@@ -44,6 +44,9 @@ spec:
               value: aip.decisions.dlq
             - name: KAFKA_GROUP_ID
               value: aip-audit
+            # Workstation GC: one small heap instead of one per CPU core (server GC), which used far more memory
+            - name: DOTNET_gcServer
+              value: "0"
           readinessProbe:
             httpGet:
               path: /health
@@ -57,11 +60,13 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 20
           resources:
+            # 512Mi: the Kafka client (librdkafka) and MongoDB driver use native memory outside the .NET heap;
+            # at 256Mi the pod was OOMKilled under load
             requests:
               cpu: 100m
-              memory: 128Mi
-            limits:
               memory: 256Mi
+            limits:
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
