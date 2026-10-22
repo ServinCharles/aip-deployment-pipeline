@@ -332,7 +332,7 @@
     {
       "type": "bargauge",
       "title": "Decisions by outcome",
-      "description": "Accepted, Referred and Declined, read from the audit log message (works with text or JSON logs).",
+      "description": "Accepted, Referred and Declined, counted from the audit log messages.",
       "datasource": {
         "type": "loki",
         "uid": "${loki}"
@@ -343,9 +343,33 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (decision) (count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" | regexp `\\((?P<decision>Accepted|Referred|Declined)\\)` [$__range]))",
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" |= \"(Accepted)\" [$__range]))",
           "refId": "A",
-          "legendFormat": "{{decision}}",
+          "legendFormat": "Accepted",
+          "instant": true,
+          "range": false,
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" |= \"(Referred)\" [$__range]))",
+          "refId": "B",
+          "legendFormat": "Referred",
+          "instant": true,
+          "range": false,
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" |= \"(Declined)\" [$__range]))",
+          "refId": "C",
+          "legendFormat": "Declined",
           "instant": true,
           "range": false,
           "queryType": "instant"
@@ -401,9 +425,29 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (decision) (count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" | regexp `\\((?P<decision>Accepted|Referred|Declined)\\)` [$__auto]))",
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" |= \"(Accepted)\" [$__auto]))",
           "refId": "A",
-          "legendFormat": "{{decision}}",
+          "legendFormat": "Accepted",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" |= \"(Referred)\" [$__auto]))",
+          "refId": "B",
+          "legendFormat": "Referred",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" |= \"(Declined)\" [$__auto]))",
+          "refId": "C",
+          "legendFormat": "Declined",
           "queryType": "range"
         }
       ],
