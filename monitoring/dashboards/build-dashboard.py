@@ -113,11 +113,11 @@ add(stat("Not saved or published", LOKI,
          f'sum(count_over_time({API} |~ "was not (saved|published)" [$__range]))',
          "Decisions aip-api could not save to MongoDB or publish to Kafka. Should be 0.", thresholds=RED), 4, 5, 12)
 add(bars("Decisions by outcome", LOKI,
-         f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp "\\((?P<decision>Accepted|Referred|Declined)\\)" [$__range]))',
+         f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp `\\((?P<decision>Accepted|Referred|Declined)\\)` [$__range]))',
          "{{decision}}", "Accepted, Referred and Declined, read from the audit log message (works with text or JSON logs)."), 8, 5, 16)
 y += 5
 add(timeseries("Decisions over time", LOKI,
-               f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp "\\((?P<decision>Accepted|Referred|Declined)\\)" [$__auto]))',
+               f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp `\\((?P<decision>Accepted|Referred|Declined)\\)` [$__auto]))',
                "{{decision}}", "Audited decisions per interval, by outcome.", stack=True), 24, 7, 0)
 y += 7
 
@@ -150,7 +150,7 @@ add(timeseries("Requests per second", PROM,
 add(timeseries("Server errors (5xx)", PROM,
                f'sum by (service_name) (rate(http_server_request_duration_seconds_count{{{BEYLA}, http_response_status_code=~"5.."}}[$__rate_interval]))'
                f' / sum by (service_name) (rate(http_server_request_duration_seconds_count{{{BEYLA}}}[$__rate_interval]))',
-               "{{service_name}}", "Share of requests that failed with a 5xx status.", unit="percentunit"), 8, 7, 8)
+               "{{service_name}}", "Share of requests that failed with a 5xx status. No line means no server errors.", unit="percentunit"), 8, 7, 8)
 add(timeseries("Response time p95", PROM,
                f'histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{{{BEYLA}}}[$__rate_interval])))',
                "{{service_name}}", "95% of requests finish within this time.", unit="s"), 8, 7, 16)
@@ -165,8 +165,8 @@ add(stat("OOMKilled containers", PROM,
          f'sum(kube_pod_container_status_last_terminated_reason{{{K8S}, reason="OOMKilled"}}) or vector(0)',
          "Containers whose last restart was caused by running out of memory.", thresholds=RED), 4, 7, 8)
 add(timeseries("Memory by container", PROM,
-               f'sum by (container) (container_memory_working_set_bytes{{{K8S}, container!=""}})',
-               "{{container}}", "Working set memory, compared against the 512Mi limits.", unit="bytes"), 12, 7, 12)
+               f'sum by (container) (container_memory_working_set_bytes{{job="integrations/kubernetes/resources", {K8S}, container!=""}})',
+               "{{container}}", "Working set memory from the kubelet, compared against the 512Mi limits.", unit="bytes"), 12, 7, 12)
 y += 7
 
 # --- Logs ---

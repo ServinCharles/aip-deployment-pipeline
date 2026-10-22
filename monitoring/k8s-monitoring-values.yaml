@@ -63,6 +63,17 @@ clusterMetrics:
   kube-state-metrics:
     # Only the namespaces we run, to stay well inside the free tier's 10,000 active series
     namespaces: [sit-01-dip, sit-01-api, sit-01-data, sit-02-dip, sit-02-api, sit-02-data, monitoring]
+  # Container memory and CPU from the kubelet's resource endpoint (reliable on k3s/containerd).
+  # The default allow list keeps only node-level metrics from it.
+  kubeletResource:
+    metricsTuning:
+      includeMetrics: [container_memory_working_set_bytes, container_cpu_usage_seconds_total, pod_memory_working_set_bytes]
+  # On k3s, cAdvisor series can arrive without image or container labels; the defaults drop them all,
+  # so keep them, but only for our namespaces to stay inside the free tier.
+  cadvisor:
+    metricsTuning:
+      dropEmptyImageLabels: false
+      includeNamespaces: [sit-01-dip, sit-01-api, sit-01-data, sit-02-dip, sit-02-api, sit-02-data, monitoring]
 
 # Kubernetes events: crashes, OOMKilled, failed image pulls, scheduling problems
 clusterEvents:
