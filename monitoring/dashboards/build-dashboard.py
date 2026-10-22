@@ -165,8 +165,8 @@ add(stat("OOMKilled containers", PROM,
          f'sum(kube_pod_container_status_last_terminated_reason{{{K8S}, reason="OOMKilled"}}) or vector(0)',
          "Containers whose last restart was caused by running out of memory.", thresholds=RED), 4, 7, 8)
 add(timeseries("Memory by container", PROM,
-               f'sum by (container) (container_memory_working_set_bytes{{{K8S}, container!=""}})',
-               "{{container}}", "Working set memory, compared against the 512Mi limits.", unit="bytes"), 12, 7, 12)
+               f'sum by (container) (container_memory_working_set_bytes{{job="integrations/kubernetes/resources", {K8S}, container!=""}})',
+               "{{container}}", "Working set memory from the kubelet, compared against the 512Mi limits.", unit="bytes"), 12, 7, 12)
 y += 7
 
 # --- Logs ---

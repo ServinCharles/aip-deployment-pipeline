@@ -988,7 +988,7 @@
     {
       "type": "timeseries",
       "title": "Memory by container",
-      "description": "Working set memory, compared against the 512Mi limits.",
+      "description": "Working set memory from the kubelet, compared against the 512Mi limits.",
       "datasource": {
         "type": "prometheus",
         "uid": "${prometheus}"
@@ -999,7 +999,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (container) (container_memory_working_set_bytes{namespace=~\"$env-.*\", container!=\"\"})",
+          "expr": "sum by (container) (container_memory_working_set_bytes{job=\"integrations/kubernetes/resources\", namespace=~\"$env-.*\", container!=\"\"})",
           "refId": "A",
           "legendFormat": "{{container}}"
         }
