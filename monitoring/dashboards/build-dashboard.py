@@ -94,6 +94,17 @@ def logs(title, expr, description):
     }
 
 
+def outcome_targets(window, query_type):
+    """One query per outcome with plain line filters (no regexp), so it works on any log format."""
+    targets = []
+    for ref, outcome in zip("ABC", ["Accepted", "Referred", "Declined"]):
+        t = target(LOKI, f'sum(count_over_time({AUDIT} |= "Audited" |= "({outcome})" [{window}]))',
+                   legend=outcome, instant=(query_type == "instant"), query_type=query_type)
+        t["refId"] = ref
+        targets.append(t)
+    return targets
+
+
 RED = [{"color": "green", "value": None}, {"color": "red", "value": 1}]
 AMBER = [{"color": "green", "value": None}, {"color": "orange", "value": 1}]
 
@@ -112,13 +123,14 @@ add(stat("Dead-lettered", LOKI,
 add(stat("Not saved or published", LOKI,
          f'sum(count_over_time({API} |~ "was not (saved|published)" [$__range]))',
          "Decisions aip-api could not save to MongoDB or publish to Kafka. Should be 0.", thresholds=RED), 4, 5, 12)
-add(bars("Decisions by outcome", LOKI,
-         f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp `\\((?P<decision>Accepted|Referred|Declined)\\)` [$__range]))',
-         "{{decision}}", "Accepted, Referred and Declined, read from the audit log message (works with text or JSON logs)."), 8, 5, 16)
+panel = bars("Decisions by outcome", LOKI, "", "",
+             "Accepted, Referred and Declined, counted from the audit log messages.")
+panel["targets"] = outcome_targets("$__range", "instant")
+add(panel, 8, 5, 16)
 y += 5
-add(timeseries("Decisions over time", LOKI,
-               f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp `\\((?P<decision>Accepted|Referred|Declined)\\)` [$__auto]))',
-               "{{decision}}", "Audited decisions per interval, by outcome.", stack=True), 24, 7, 0)
+panel = timeseries("Decisions over time", LOKI, "", "", "Audited decisions per interval, by outcome.", stack=True)
+panel["targets"] = outcome_targets("$__auto", "range")
+add(panel, 24, 7, 0)
 y += 7
 
 # --- Chatbot, from aip-chat-api's logs (intent and confidence only, never the customer's words) ---
