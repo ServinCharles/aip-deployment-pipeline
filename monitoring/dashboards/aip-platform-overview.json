@@ -13,7 +13,7 @@
   "editable": true,
   "refresh": "1m",
   "time": {
-    "from": "now-6h",
+    "from": "now-1h",
     "to": "now"
   },
   "templating": {
@@ -23,7 +23,7 @@
         "label": "Metrics",
         "type": "datasource",
         "query": "prometheus",
-        "regex": "",
+        "regex": "/grafanacloud-.*-prom$/",
         "current": {},
         "hide": 0
       },
@@ -32,7 +32,7 @@
         "label": "Logs",
         "type": "datasource",
         "query": "loki",
-        "regex": "",
+        "regex": "/grafanacloud-.*-logs$/",
         "current": {},
         "hide": 0
       },
@@ -332,7 +332,7 @@
     {
       "type": "bargauge",
       "title": "Decisions by outcome",
-      "description": "Accepted, Referred and Declined, from the Decision field of the audit log.",
+      "description": "Accepted, Referred and Declined, read from the audit log message (works with text or JSON logs).",
       "datasource": {
         "type": "loki",
         "uid": "${loki}"
@@ -343,7 +343,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (decision) (count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" | json decision=\"State.Decision\" [$__range]))",
+          "expr": "sum by (decision) (count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" | regexp \"\\((?P<decision>Accepted|Referred|Declined)\\)\" [$__range]))",
           "refId": "A",
           "legendFormat": "{{decision}}",
           "instant": true,
@@ -401,7 +401,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (decision) (count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" | json decision=\"State.Decision\" [$__auto]))",
+          "expr": "sum by (decision) (count_over_time({namespace=\"$env-api\", container=\"aip-audit-service\"} |= \"Audited\" | regexp \"\\((?P<decision>Accepted|Referred|Declined)\\)\" [$__auto]))",
           "refId": "A",
           "legendFormat": "{{decision}}",
           "queryType": "range"
@@ -522,7 +522,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" | json intent=\"State.Intent\" | intent=\"fallback\" [$__range])) / sum(count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" [$__range]))",
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" | regexp \"Chat intent (?P<intent>[a-z_]+)\" | intent=\"fallback\" [$__range])) / sum(count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" [$__range]))",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -587,7 +587,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" | json intent=\"State.Intent\" | intent=\"personal_data_blocked\" [$__range]))",
+          "expr": "sum(count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" | regexp \"Chat intent (?P<intent>[a-z_]+)\" | intent=\"personal_data_blocked\" [$__range]))",
           "refId": "A",
           "instant": true,
           "range": false,
@@ -648,7 +648,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (intent) (count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" | json intent=\"State.Intent\" [$__range]))",
+          "expr": "sum by (intent) (count_over_time({namespace=\"$env-api\", container=\"aip-chat-api\"} |= \"Chat intent\" | regexp \"Chat intent (?P<intent>[a-z_]+)\" [$__range]))",
           "refId": "A",
           "legendFormat": "{{intent}}",
           "instant": true,

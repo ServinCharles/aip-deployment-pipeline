@@ -113,11 +113,11 @@ add(stat("Not saved or published", LOKI,
          f'sum(count_over_time({API} |~ "was not (saved|published)" [$__range]))',
          "Decisions aip-api could not save to MongoDB or publish to Kafka. Should be 0.", thresholds=RED), 4, 5, 12)
 add(bars("Decisions by outcome", LOKI,
-         f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | json decision="State.Decision" [$__range]))',
-         "{{decision}}", "Accepted, Referred and Declined, from the Decision field of the audit log."), 8, 5, 16)
+         f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp "\\((?P<decision>Accepted|Referred|Declined)\\)" [$__range]))',
+         "{{decision}}", "Accepted, Referred and Declined, read from the audit log message (works with text or JSON logs)."), 8, 5, 16)
 y += 5
 add(timeseries("Decisions over time", LOKI,
-               f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | json decision="State.Decision" [$__auto]))',
+               f'sum by (decision) (count_over_time({AUDIT} |= "Audited" | regexp "\\((?P<decision>Accepted|Referred|Declined)\\)" [$__auto]))',
                "{{decision}}", "Audited decisions per interval, by outcome.", stack=True), 24, 7, 0)
 y += 7
 
@@ -127,18 +127,18 @@ add(stat("Questions", LOKI,
          f'sum(count_over_time({CHAT} |= "Chat intent" [$__range]))',
          "Chat messages answered in the selected time range."), 4, 6, 0)
 add(stat("Fallback rate", LOKI,
-         f'sum(count_over_time({CHAT} |= "Chat intent" | json intent="State.Intent" | intent="fallback" [$__range]))'
+         f'sum(count_over_time({CHAT} |= "Chat intent" | regexp "Chat intent (?P<intent>[a-z_]+)" | intent="fallback" [$__range]))'
          f' / sum(count_over_time({CHAT} |= "Chat intent" [$__range]))',
          "Share of questions the bot could not match to an intent. A rising rate means new training data is needed.",
          unit="percentunit",
          thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 0.2},
                      {"color": "red", "value": 0.4}]), 4, 6, 4)
 add(stat("Personal data blocked", LOKI,
-         f'sum(count_over_time({CHAT} |= "Chat intent" | json intent="State.Intent" | intent="personal_data_blocked" [$__range]))',
+         f'sum(count_over_time({CHAT} |= "Chat intent" | regexp "Chat intent (?P<intent>[a-z_]+)" | intent="personal_data_blocked" [$__range]))',
          "Messages with card, account, sort code or National Insurance numbers, blocked by the guardrail.",
          thresholds=AMBER), 4, 6, 8)
 add(bars("Questions by intent", LOKI,
-         f'sum by (intent) (count_over_time({CHAT} |= "Chat intent" | json intent="State.Intent" [$__range]))',
+         f'sum by (intent) (count_over_time({CHAT} |= "Chat intent" | regexp "Chat intent (?P<intent>[a-z_]+)" [$__range]))',
          "{{intent}}", "What customers ask about, including handovers (speak_to_advisor, complaint)."), 12, 6, 12)
 y += 6
 
@@ -187,11 +187,11 @@ dashboard = {
     "version": 1,
     "editable": True,
     "refresh": "1m",
-    "time": {"from": "now-6h", "to": "now"},
+    "time": {"from": "now-1h", "to": "now"},
     "templating": {"list": [
         {"name": "prometheus", "label": "Metrics", "type": "datasource", "query": "prometheus",
-         "regex": "", "current": {}, "hide": 0},
-        {"name": "loki", "label": "Logs", "type": "datasource", "query": "loki", "regex": "", "current": {}, "hide": 0},
+         "regex": "/grafanacloud-.*-prom$/", "current": {}, "hide": 0},
+        {"name": "loki", "label": "Logs", "type": "datasource", "query": "loki", "regex": "/grafanacloud-.*-logs$/", "current": {}, "hide": 0},
         {"name": "env", "label": "Environment", "type": "custom", "query": "sit-01,sit-02",
          "current": {"text": "sit-01", "value": "sit-01"},
          "options": [{"text": "sit-01", "value": "sit-01", "selected": True},
